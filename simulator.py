@@ -20,7 +20,8 @@ class ZendureSimulator:
         self.devices: dict[str, ZendureDevice] = {}
         self.time = []
         self.p1 = []
-        self.home = []
+        self.homeC = []
+        self.homeZ = []
         self.solar = []
         self.offgrid = []
         self.modes = []
@@ -54,7 +55,8 @@ class ZendureSimulator:
 
             self.time.append(p1time)
             self.p1.append(newP1)
-            self.home.append(home_total)
+            self.homeZ.append(home_total)
+            self.homeC.append(home_total + newP1)
             self.solar.append(solar_total)
             self.offgrid.append(offgrid_total)
         try:
@@ -119,15 +121,15 @@ class ZendureSimulator:
         for i, t in enumerate(self.time):
             simhome = 0
             if i == 0:
-                simhome = self.home[0]
+                simhome = self.homeZ[0]
                 simp1 = self.p1[0]
-                self.sim_home.append(self.home[0])
+                self.sim_home.append(self.homeZ[0])
                 self.sim_p1.append(self.p1[0])
                 for d in self.devices.values():
                     d.availableKwh.update_value(d.kWh * (d.levels[d.startindex] - d.minSoc.asNumber) / 100)
                     avail_max = d.kWh * (d.socSet.asNumber - d.minSoc.asNumber) / 100
                     d.level = round(100 * d.availableKwh.asNumber / avail_max)
-                    d.homePower.update_value(self.home[d.startindex])
+                    d.homePower.update_value(self.homeZ[d.startindex])
                     d.solarPower.update_value(d.solar[d.startindex])
                     d.offGrid.update_value(d.offgrid[d.startindex])
                     d.sim_level.append(d.levels[d.startindex])
@@ -135,10 +137,10 @@ class ZendureSimulator:
                 timeBetweenUpdates = (t - starttime).total_seconds()
                 for d in self.devices.values():
                     # Update the totals
-                    simhome += d.power_setpoint
-                    d.homePower.update_value(d.power_setpoint)
                     d.solarPower.update_value(d.solar[i])
                     d.offGrid.update_value(d.offgrid[i])
+                    simhome += d.power_setpoint
+                    d.homePower.update_value(d.power_setpoint)
 
                     # update the running values
                     battery = d.homePower.asInt - d.solarPower.asInt + d.offGrid.asInt
@@ -149,10 +151,10 @@ class ZendureSimulator:
                     d.level = round(100 * d.availableKwh.asNumber / avail_max)
                     d.sim_level.append(round(100 * avail / d.kWh + d.minSoc.asNumber))
 
-                simp1 = (self.home[i] + self.p1[i]) - simhome + self.offgrid[i]
+                simp1 = self.homeC[i] - simhome 
 
-            self.sim_p1.append(simp1)
             distribution.update(simp1, t)
+            self.sim_p1.append(simp1)
             self.sim_home.append(sum(d.power_setpoint for d in self.devices.values()))
             starttime = t
 

@@ -31,7 +31,6 @@ class ZendureDevice:
         self.values = [0, 0, 0, 0]
         self.power_setpoint = 0
         self.power_time = datetime.min
-        self.power_offset = 0
         self.power_limit = 0
         self.status = DeviceState.ACTIVE
 
@@ -79,23 +78,18 @@ class ZendureDevice:
                     self.batteryUpdate()
                 elif bat and b:
                     bat.entityRead(b)
+        self.homePower.update_value(-self.values[0] + self.values[1] + (min(self.offGrid.asInt, self.values[0] + self.values[3]) if self.offGrid is not None and self.offGrid.asInt > 0 else 0))
 
     def batteryUpdate(self) -> None:
         """Update device based on battery status."""
 
     def entityUpdate(self, key: str, value: Any) -> None:
-        def home(value: int) -> None:
-            # if self.power_time > datetime.min and abs(value - self.power_setpoint) < 20:
-            #     self.power_time = datetime.min
-            self.homePower.update_value(value)
 
         match key:
             case "gridInputPower":
                 self.values[0] = value
-                home(-value + self.values[1])
             case "outputHomePower":
                 self.values[1] = value
-                home(-self.values[0] + value)
             case "outputPackPower":
                 self.values[2] = value
                 self.batteryPower.update_value(-value + self.values[3])
@@ -127,25 +121,27 @@ class ZendureDevice:
             _LOGGER.error(f"SetLimits error {self.name} {charge} {discharge}!")
 
     def distribute(self, power: int, time: datetime) -> int:
-        """Set charge/discharge power, but correct for power offset."""
+        """Set charge/discharge power"""
         # if self.power_time != datetime.min and (delta := (self.power_time - time).total_seconds())> 0:
         #     if (delta < 1):
         #         self.homePower.update_value(self.power_setpoint)
         #     else:
         #         return self.power_setpoint
 
-        pwr = power + self.power_offset
+        pwr = power 
         if (delta := abs(pwr - self.homePower.asInt)) <= SmartMode.POWER_TOLERANCE:
-            return self.homePower.asInt - self.power_offset
+            return self.homePower.asInt
         pwr = min(max(self.limit[0], pwr), self.limit[1])
 
         # adjust for bypass
         if pwr < 0 and  self.level >= 99:
             pwr = 0
-        elif self.level <= 1:
+        elif self.level <= 1 and self.offGrid is not None and self.offGrid.asInt <= 0:
             pwr = min(self.solarPower.asInt, pwr)
-
+        # I think we need to add here the offGrid power. For the SF 800 it can exceed the limit which limits outputHomePower
+        # but it cannot exceed HW limit of 1000W. Actually this HW limit is not available at this point (overwriten by inverseMaxPower)
+        # for the SF 2400 the inverseMaxPower limits the power in and out of the battery
         self.power_setpoint = pwr
         if power != self.power_setpoint:
             self.power_time = time + timedelta(seconds=3 + delta / 250)
-        return pwr + self.power_offset
+        return pwr
